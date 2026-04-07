@@ -2,9 +2,9 @@ pipeline {
     agent any 
 
     environment {
-        PROJECT_ID = 'dev-uk-123'  // GCP Project ID
-        DOCKER_HUB_CREDENTIALS_USR = 'afroz2022'  // Your Docker Hub username
-        IMAGE_NAME = 'cloudrunlab'  // Docker image name
+        PROJECT_ID = 'dev-uk-123'
+        IMAGE_NAME = 'cloudrunlab'
+        DOCKER_REPO = 'afroz2022'
     }
 
     stages {
@@ -17,7 +17,7 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    sh "docker build -t ${DOCKER_HUB_CREDENTIALS_USR}/${IMAGE_NAME}:${BUILD_NUMBER} ."
+                    sh "docker build -t ${DOCKER_REPO}/${IMAGE_NAME}:${BUILD_NUMBER} ."
                 }
             }
         }
@@ -25,9 +25,16 @@ pipeline {
         stage('Push Docker Image to Docker Hub') {
             steps {
                 script {
-                    withCredentials([usernamePassword(credentialsId: 'docker-hub-password', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                        sh "echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin"
-                        sh "docker push $DOCKER_USERNAME/${IMAGE_NAME}:${BUILD_NUMBER}
+                    withCredentials([usernamePassword(
+                        credentialsId: 'docker-hub-password',
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )]) {
+                        sh """
+                        echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
+                        docker push ${DOCKER_REPO}/${IMAGE_NAME}:${BUILD_NUMBER}
+                        docker logout
+                        """
                     }
                 }
             }
@@ -36,30 +43,27 @@ pipeline {
         stage('Deploy to Google Cloud Run') {
             steps {
                 script {
-                    // Authenticate with GCP using the service account key file stored in Jenkins credentials
-                    withCredentials([file(credentialsId: 'gcp-service-account', variable: 'GOOGLE_APPLICATION_CREDENTIALS')]) {
+                    withCredentials([file(
+                        credentialsId: 'gcp-service-account',
+                        variable: 'GOOGLE_APPLICATION_CREDENTIALS'
+                    )]) {
 
-                        // Explicitly activate the service account
                         sh "gcloud auth activate-service-account --key-file=$GOOGLE_APPLICATION_CREDENTIALS"
-
-                        // Set the project
                         sh "gcloud config set project ${PROJECT_ID}"
 
-                        // Deploy to Cloud Run
                         sh """
-                            gcloud run deploy ${IMAGE_NAME} \
-                                --image docker.io/${DOCKER_HUB_CREDENTIALS_USR}/${IMAGE_NAME}:${BUILD_NUMBER} \
-                                --platform managed \
-                                --region us-central1 \
-                                --allow-unauthenticated
+                        gcloud run deploy ${IMAGE_NAME} \
+                            --image docker.io/${DOCKER_REPO}/${IMAGE_NAME}:${BUILD_NUMBER} \
+                            --platform managed \
+                            --region us-central1 \
+                            --allow-unauthenticated
                         """
 
-                        // Allow public access (if needed)
                         sh """
-                            gcloud run services add-iam-policy-binding ${IMAGE_NAME} \
-                                --region us-central1 \
-                                --member='allUsers' \
-                                --role='roles/run.invoker'
+                        gcloud run services add-iam-policy-binding ${IMAGE_NAME} \
+                            --region us-central1 \
+                            --member='allUsers' \
+                            --role='roles/run.invoker'
                         """
                     }
                 }
