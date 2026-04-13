@@ -5,9 +5,11 @@ pipeline {
         PROJECT_ID = 'dev-uk-123'
         IMAGE_NAME = 'cloudrunlab'
         DOCKER_REPO = 'afroz2022'
+        REGION = 'us-central1'
     }
 
     stages {
+
         stage('Clone Repository') {
             steps {
                 git branch: 'main', url: 'https://github.com/devops-shaik999/cloudrun-cicd.git'
@@ -31,7 +33,7 @@ pipeline {
                         passwordVariable: 'DOCKER_PASSWORD'
                     )]) {
                         sh """
-                        echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
+                        echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
                         docker push ${DOCKER_REPO}/${IMAGE_NAME}:${BUILD_NUMBER}
                         docker logout
                         """
@@ -48,32 +50,36 @@ pipeline {
                         variable: 'GOOGLE_APPLICATION_CREDENTIALS'
                     )]) {
 
-                        sh "gcloud auth activate-service-account --key-file=$GOOGLE_APPLICATION_CREDENTIALS"
-                        sh "gcloud config set project ${PROJECT_ID}"
-
                         sh """
+                        gcloud auth activate-service-account --key-file=$GOOGLE_APPLICATION_CREDENTIALS
+                        gcloud config set project ${PROJECT_ID}
+                        gcloud auth configure-docker
+
                         gcloud run deploy ${IMAGE_NAME} \
                             --image docker.io/${DOCKER_REPO}/${IMAGE_NAME}:${BUILD_NUMBER} \
                             --platform managed \
-                            --region us-central1 \
-                            --allow-unauthenticated
-                        """
-
-                        sh """
-                        gcloud run services add-iam-policy-binding ${IMAGE_NAME} \
-                            --region us-central1 \
-                            --member='allUsers' \
-                            --role='roles/run.invoker'
+                            --region ${REGION} \
+                            --allow-unauthenticated \
+                            --quiet
                         """
                     }
                 }
             }
         }
 
-        stage('Cleanup Workspace') {
+        stage('Cleanup') {
             steps {
                 cleanWs()
             }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Deployment Successful!"
+        }
+        failure {
+            echo "❌ Pipeline Failed. Check logs."
         }
     }
 }
